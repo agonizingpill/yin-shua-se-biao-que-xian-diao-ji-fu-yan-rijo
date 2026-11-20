@@ -21,8 +21,15 @@ def current(auth=Depends(bearer),s=Depends(db_session)):
         if not u: raise ValueError()
         return u
     except Exception: raise HTTPException(401,'登录已过期，请重新登录')
+def staff(u=Depends(current)):
+    # 盲评员与车间数据隔离：除 /me、/enums 与盲评专用接口外不得读取生产数据。
+    if u.role=='blind': raise HTTPException(403,'盲评员仅可使用盲评页面')
+    return u
 def writers(u=Depends(current)):
     if u.role not in ('admin','pressman'): raise HTTPException(403,'观察员不能修改色标与调机指令')
+    return u
+def blind_only(u=Depends(current)):
+    if u.role!='blind': raise HTTPException(403,'仅盲评员可凭留样号独立签字')
     return u
 def admin(u=Depends(current)):
     if u.role!='admin': raise HTTPException(403,'仅印刷主管可签印恢复量产')

@@ -32,6 +32,10 @@ def sample(s,p,u,r):
 
 def finish(s,proof):
     item=s.scalar(select(PressSample).where(PressSample.proof_id==proof.id).with_for_update())
+    # 盲评只采用该张唯一一次机判；worker 重试在此幂等跳过，不重复入账。
+    # 先锁抽检记录再锁盲评记录，与主管圈定保持同一加锁顺序，避免交叉等待。
+    from .blind_service import record_machine
+    record_machine(s,proof)
     if not item or item.state!='classifying':return
     job=s.scalar(select(PrintJob).where(PrintJob.id==item.job_id).with_for_update())
     if proof.classification_state=='classified' and proof.pass_flag and proof.defect=='合格':item.state='passed';return

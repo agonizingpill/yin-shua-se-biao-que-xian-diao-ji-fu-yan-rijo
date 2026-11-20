@@ -9,7 +9,7 @@ from src.dispatch_models import PaperLot,PressMachine
 def seed():
     Base.metadata.create_all(engine)
     with Session()as s:
-        for role in ('admin','pressman','viewer'):
+        for role in ('admin','pressman','viewer','blind'):
             email=role+'@qianye.demo'
             if not s.scalar(select(User).where(User.email==email)):s.add(User(email=email,role=role,password_hash=hash_password('Press2026!')))
         for code,title,paper in [('PJ-26091','画册封套','157g 哑粉'),('PJ-26092','展览折页','128g 铜版')]:

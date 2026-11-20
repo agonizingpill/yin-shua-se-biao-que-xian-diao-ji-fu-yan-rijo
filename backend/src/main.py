@@ -7,12 +7,13 @@ from fastapi import FastAPI,Depends,HTTPException
 from fastapi.responses import JSONResponse
 from .db import Base,engine,db_session
 from .models import User,PrintJob,ProofSheet,Adjustment,Audit
-from .auth import current,writers,admin,verify,token
+from .auth import current,staff,writers,admin,verify,token
 from .schemas import Login,JobInput,ProofInput,AdjustmentInput,InstructionInput,ReproofInput
 from .services import get,pack,audit,editable_proof,issue,change_instruction,sign,now
 from .middlewares import RequestTrace,BurstGuard
 from .production_routes import router as production
 from .dispatch_routes import router as dispatches
+from .blind_routes import router as blind
 from .plate_service import require_ready
 from .paper_service import locked
 from .constants import ROLES,DEFECTS,JOB_STATES,ADJUSTMENT_STATES
@@ -29,7 +30,7 @@ async def lifespan(app):
 app=FastAPI(title='铅叶 · 色标缺陷与调机复验',lifespan=lifespan);app.add_middleware(RequestTrace);app.add_middleware(BurstGuard)
 @app.exception_handler(IntegrityError)
 async def conflict(req,exc):return JSONResponse({'detail':'工单、色标编号或首张调机指令重复，请核对'},409)
-app.include_router(production);app.include_router(dispatches)
+app.include_router(production);app.include_router(dispatches);app.include_router(blind)
 @app.get('/health')
 def health(s=Depends(db_session)):s.execute(select(1));r.ping();return {'status':'ok'}
 @app.post('/auth/login')
@@ -42,7 +43,7 @@ def me(u=Depends(current)):return {'email':u.email,'role':u.role}
 @app.get('/enums')
 def enums(u=Depends(current)):return {'roles':ROLES,'defects':DEFECTS,'job_states':JOB_STATES,'adjustment_states':ADJUSTMENT_STATES}
 @app.get('/jobs')
-def jobs(s=Depends(db_session),u=Depends(current)):return [pack(x)for x in s.scalars(select(PrintJob).order_by(PrintJob.id))]
+def jobs(s=Depends(db_session),u=Depends(staff)):return [pack(x)for x in s.scalars(select(PrintJob).order_by(PrintJob.id))]
 @app.post('/jobs')
 def add_job(p:JobInput,s=Depends(db_session),u=Depends(writers)):
     j=PrintJob(**p.model_dump(),status='setup');s.add(j);audit(s,u,'登记开机单 '+p.code);s.commit();return pack(j)
@@ -55,7 +56,7 @@ def edit_job(jid:int,p:JobInput,s=Depends(db_session),u=Depends(writers)):
     for k,value in p.model_dump().items():setattr(j,k,value)
     audit(s,u,'修订开机单 '+j.code);s.commit();return pack(j)
 @app.get('/proofs')
-def proofs(s=Depends(db_session),u=Depends(current)):return [pack(x)for x in s.scalars(select(ProofSheet).order_by(ProofSheet.id))]
+def proofs(s=Depends(db_session),u=Depends(staff)):return [pack(x)for x in s.scalars(select(ProofSheet).order_by(ProofSheet.id))]
 @app.post('/proofs')
 def add_proof(p:ProofInput,s=Depends(db_session),u=Depends(writers)):
     j=get(s,PrintJob,p.job_id)
@@ -74,7 +75,7 @@ def classify(pid:int,s=Depends(db_session),u=Depends(writers)):
     except Exception:x.classification_state='failed';s.commit();raise HTTPException(503,'判读队列暂不可用，请重试')
     return pack(x)
 @app.get('/adjustments')
-def adjustments(s=Depends(db_session),u=Depends(current)):return [pack(x)for x in s.scalars(select(Adjustment).order_by(Adjustment.id))]
+def adjustments(s=Depends(db_session),u=Depends(staff)):return [pack(x)for x in s.scalars(select(Adjustment).order_by(Adjustment.id))]
 @app.post('/adjustments')
 def create_adjustment(p:AdjustmentInput,s=Depends(db_session),u=Depends(writers)):
     x=issue(s,p.proof_id);audit(s,u,'生成调机指令 色标#'+str(p.proof_id));s.commit();return pack(x)
@@ -95,4 +96,4 @@ def execute(aid:int,s=Depends(db_session),u=Depends(writers)):
 def approve(aid:int,p:ReproofInput,s=Depends(db_session),u=Depends(admin)):
     x=sign(s,aid,p.reproof_id,u);audit(s,u,'主管签印#'+str(aid));s.commit();return pack(x)
 @app.get('/audits')
-def audits(s=Depends(db_session),u=Depends(current)):return [pack(x)for x in s.scalars(select(Audit).order_by(Audit.id.desc()).limit(30))]
+def audits(s=Depends(db_session),u=Depends(staff)):return [pack(x)for x in s.scalars(select(Audit).order_by(Audit.id.desc()).limit(30))]
